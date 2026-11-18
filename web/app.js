@@ -11,7 +11,9 @@ const assignmentColumns = ["course", "title", "due", "status", "points", "possib
 const formatNumber = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 let state;
 let filter = "all";
-let workSort = null;
+const workSortKey = "gradebook.schoolwork.sort";
+const workNames = new Intl.Collator("en-US", { numeric: true, sensitivity: "base" });
+let workSort = storedWorkSort();
 let selectedId;
 let showingWhatIf = false;
 const trialScores = new Map();
@@ -45,7 +47,6 @@ async function api(path, payload) {
 
 function showLogin() {
   state = undefined;
-  workSort = null;
   trialScores.clear();
   showingWhatIf = false;
   $("whatif").hidden = true;
@@ -188,28 +189,58 @@ function renderRecovery(rows) {
   }
 }
 
+function storedWorkSort() {
+  try {
+    const [key, direction] = (localStorage.getItem(workSortKey) || "").split(":");
+    if (!["course", "due"].includes(key) || !["1", "-1"].includes(direction)) return null;
+    return { key, direction: Number(direction) };
+  } catch {
+    return null;
+  }
+}
+
+function setWorkSort(sort) {
+  workSort = sort;
+  try {
+    if (sort) localStorage.setItem(workSortKey, sort.key + ":" + sort.direction);
+    else localStorage.removeItem(workSortKey);
+  } catch {
+    // In-memory sorting still works when storage is unavailable.
+  }
+}
+
+function assignmentOrder(left, right, sort) {
+  const byDate = left.dueOrder - right.dueOrder;
+  const byClass = workNames.compare(left.course, right.course);
+  const byTitle = workNames.compare(left.title, right.title);
+  const byId = left.id.localeCompare(right.id);
+  if (sort?.key === "course") return byClass * sort.direction || byDate || byTitle || byId;
+  return byDate * (sort?.direction ?? 1) || byClass || byTitle || byId;
+}
+
 function renderWork() {
   const className = $("course").value;
   const rows = state.assignments.filter((row) => !className || row.course === className)
-    .map((row) => ({ ...row, bucket: bucket(row) }));
+    .map((row) => ({ ...row, bucket: bucket(row), dueOrder: Number(row.due.replaceAll("-", "")) }));
   renderRecovery(rows);
   const order = ["missing", "today", "past", "upcoming", "review", "done"];
+  const effectiveSort = workSort || (filter === "record" ? { key: "due", direction: 1 } : null);
   rows.sort((left, right) => {
-    if (workSort) {
-      const { key, direction } = workSort;
-      const primary = left[key].localeCompare(right[key]) * direction;
-      const secondary = key === "course" ? left.due.localeCompare(right.due) : left.course.localeCompare(right.course);
-      return primary || secondary || left.title.localeCompare(right.title);
-    }
-    return order.indexOf(left.bucket) - order.indexOf(right.bucket) ||
-      (left.bucket === "review" || left.bucket === "done" ? right.due.localeCompare(left.due) : left.due.localeCompare(right.due));
+    if (effectiveSort) return assignmentOrder(left, right, effectiveSort);
+    const priority = order.indexOf(left.bucket) - order.indexOf(right.bucket);
+    const recentFirst = left.bucket === "review" || left.bucket === "done";
+    return priority || assignmentOrder(left, right, { key: "due", direction: recentFirst ? -1 : 1 });
   });
+  const activeOrder = !effectiveSort ? "Priority order" : effectiveSort.key === "course"
+    ? (effectiveSort.direction === 1 ? "Class A–Z" : "Class Z–A") + " · earliest due date first within each class"
+    : "Due date · " + (effectiveSort.direction === 1 ? "earliest first" : "latest first");
+  $("work-sort-summary").textContent = activeOrder;
   for (const key of ["course", "due"]) {
     const button = $("sort-" + key);
-    const active = workSort?.key === key;
-    if (active) button.parentElement.setAttribute("aria-sort", workSort.direction === 1 ? "ascending" : "descending");
+    const active = effectiveSort?.key === key;
+    if (active) button.parentElement.setAttribute("aria-sort", effectiveSort.direction === 1 ? "ascending" : "descending");
     else button.parentElement.removeAttribute("aria-sort");
-    button.lastElementChild.textContent = active ? (workSort.direction === 1 ? "↑" : "↓") : "↕";
+    button.lastElementChild.textContent = active ? (effectiveSort.direction === 1 ? "↑" : "↓") : "↕";
   }
   $("reset-work-sort").hidden = !workSort;
   const tracked = rows.filter((row) => {
@@ -231,8 +262,9 @@ function renderWork() {
     return button;
   };
   $("tabs").replaceChildren(...["all", "missing", "past", "today", "upcoming", "review", "tracked", "record"].map(makeTab));
-  $("work-caption").textContent = work.length ? work.length + " items to plan or follow up on" : "You’re caught up in this view.";
   const shown = filter === "record" ? rows : filter === "tracked" ? tracked : work.filter((row) => filter === "all" || row.bucket === filter);
+  $("work-caption").textContent = shown.length + (shown.length === 1 ? " assignment" : " assignments") +
+    " in this view";
   if (shown.length) {
     $("work-list").replaceChildren(...shown.map(assignment));
   } else {
@@ -555,13 +587,14 @@ $("enrich-dialog").addEventListener("close", () => {
 $("recovery-sort").addEventListener("change", renderWork);
 for (const key of ["course", "due"]) {
   $("sort-" + key).addEventListener("click", () => {
-    workSort = { key, direction: workSort?.key === key ? -workSort.direction : 1 };
+    const current = workSort || (filter === "record" ? { key: "due", direction: 1 } : null);
+    setWorkSort({ key, direction: current?.key === key ? -current.direction : 1 });
     renderWork();
   });
 }
 $("reset-work-sort").addEventListener("click", () => {
   const key = workSort.key;
-  workSort = null;
+  setWorkSort(null);
   renderWork();
   $("sort-" + key).focus();
 });
