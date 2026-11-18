@@ -7,7 +7,7 @@ A family dashboard for middle-school work and an after-school plan. It runs as a
 - Missing assignments use Infinite Campus’s missing flag. An open item with an earlier due date appears under **Past due** with **Check status**. It can be awaiting a score.
 - **Due today** and **Upcoming** use the Phoenix calendar date. Tomorrow’s items are labeled in the upcoming list.
 - **Review** includes graded work below 80%. Use **Next step** to record reviewing mistakes, asking about a redo or retake, or working on a submission. **Tracked** keeps those items visible. **Finished follow-up** removes the item from the active queue. Assignment notes and steps stay in Gradebook.
-- The goal is A or B in every graded class, using the school’s reported letter grades, including plus and minus variants. Below the goal, the school-day plan is homework with help from 3:45 to 4:45 PM, then screen-free time until dinner. With a lowest grade of D, the family plan shows one hour of PC or iPad after dinner. With C, it shows three hours. An F or unavailable letter grade calls for a parent decision. With all A’s and B’s, screen time is self-managed and the homework check-in is optional.
+- The goal is A or B in every graded class, using the school’s reported letter grades, including plus and minus variants. Below the goal, the school-day plan is homework with help from 3:45 to 4:45 PM, then screen-free time until dinner. Any D or F gives one hour of PC or iPad after dinner. With a lowest grade of C, it shows three hours. If a letter grade is unavailable and no D or F is reported, the dashboard calls for a parent decision. With all A’s and B’s, screen time is self-managed and the homework check-in is optional.
 - The homework check-in resets at midnight in America/Phoenix. Gradebook displays the plan and records progress. Device limits are handled by the family.
 
 ## Run with Docker on the Mac Mini
@@ -37,11 +37,18 @@ Then open [Gradebook locally](http://127.0.0.1:8786). For direct access on a tru
 
 ## Refresh Infinite Campus data
 
-Gradebook shows the date of the last snapshot. The first version uses a manual refresh.
+Gradebook shows the date of the last snapshot. The fastest refresh is to copy two Campus Parent pages and let Gradebook read the pasted text.
 
-1. In Campus Parent, select the student, open **Grades**, and select the current term. Use each course’s **Semester To Date** letter and percentage. Blank letter grades are supported when one is unavailable.
-2. Open **Assignments** with **Current Term** selected. Copy the relevant due dates, missing status, and available points. Use `open` for ungraded work with unknown submission status.
-3. Sign into Gradebook with the parent key and choose **Update snapshot**. The form starts with the previous snapshot, so you can edit those rows or paste CSV from a spreadsheet. Set the snapshot date to when you checked the portal.
+1. In Campus Parent, select the student and open **Grades**. Select only the current term and choose **Settings → Expand All** so the **Semester To Date** rows are visible.
+2. In Gradebook, sign in with the parent key and choose **Update snapshot**. Click inside the content of the Campus Grades page, select all, copy, and paste in **Copy Grades**.
+3. In Campus Parent, open **Assignments**, select **Current Term**, and clear the **Missing** filter. Click inside the page, select all, copy, and paste in **Copy Assignments**. Use the same student as on Grades.
+4. Choose **Preview import**, check the class grades and assignment counts, then choose **Save snapshot**. The copy-and-paste import uses the date of the preview. Use the date field for a snapshot from an earlier day.
+
+This reads only the text you paste into Gradebook. Campus Parent documents portal views, notifications, and downloadable school documents. Unattended updates would need a school-approved feed with assignments and in-progress grades, such as a district-provisioned OneRoster connection where the required data is available. See the [Campus Parent tools](https://kb.infinitecampus.com/help/tools-in-campus-parent) and [OneRoster prerequisites](https://kb.infinitecampus.com/help/oneroster-prerequisites).
+
+### CSV fallback
+
+Choose **Use CSV instead** or expand **Review or edit CSV** in the preview. The form starts with the relevant rows so you can edit them or paste CSV from a spreadsheet.
 
 Grades CSV:
 

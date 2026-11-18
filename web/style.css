@@ -120,3 +120,9 @@ code { color: var(--muted); font-size: .75rem; display: block; margin-bottom: 5p
   .filters { padding-left: 14px; padding-right: 14px; }
   .side-column { grid-template-columns: 1fr; }
 }
+
+form .hint { font-size: .8rem; margin: 0 0 6px; }
+details { margin-top: 14px; font-size: .86rem; }
+summary { cursor: pointer; color: var(--teal); font-weight: 650; }
+#import-summary:not(:empty) { margin-bottom: 8px; }
+.dialog-actions { display: flex; align-items: baseline; flex-wrap: wrap; gap: 15px; }

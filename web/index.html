@@ -106,20 +106,42 @@
       <button class="primary">Save next step</button>
     </form>
   </dialog>
+  <dialog id="campus-dialog">
+    <form id="campus-form">
+      <div class="dialog-head"><h2>Update from Infinite Campus</h2><button class="plain" type="button" data-close="campus-dialog" aria-label="Close">✕</button></div>
+      <p>Select the same student on both Campus Parent pages. Click inside each page, then use <kbd>⌘A</kbd> and <kbd>⌘C</kbd> on Mac or <kbd>Ctrl+A</kbd> and <kbd>Ctrl+C</kbd> on Windows.</p>
+      <label for="campus-student">Student’s first name</label>
+      <input id="campus-student" maxlength="40" required>
+      <label for="campus-grades">1. Copy Grades</label>
+      <p class="hint">Select only the current term. Under Settings, choose Expand All.</p>
+      <textarea id="campus-grades" rows="3" required spellcheck="false" placeholder="Paste the Grades page here"></textarea>
+      <label for="campus-assignments">2. Copy Assignments</label>
+      <p class="hint">Select Current Term and clear Missing so all assignments are included.</p>
+      <textarea id="campus-assignments" rows="3" required spellcheck="false" placeholder="Paste the Assignments page here"></textarea>
+      <p class="error" role="alert"></p>
+      <div class="dialog-actions">
+        <button class="primary">Preview import</button>
+        <button id="manual-import" type="button" class="plain">Use CSV instead</button>
+      </div>
+    </form>
+  </dialog>
   <dialog id="import-dialog">
     <form id="import-form">
       <div class="dialog-head"><h2>Update school snapshot</h2><button class="plain" type="button" data-close="import-dialog" aria-label="Close">✕</button></div>
-      <p>Bring in the latest school records from Infinite Campus. Use CSV with the column headers shown below. Saving replaces the school snapshot and keeps saved next steps for matching assignments.</p>
+      <p id="import-summary"></p>
+      <p>Saving replaces the school snapshot and keeps next steps for matching assignments.</p>
       <label for="student">First name</label><input id="student" maxlength="40" required>
       <div class="form-grid">
         <div><label for="term">Term</label><input id="term" maxlength="60" required></div>
         <div><label for="as-of">Snapshot date</label><input id="as-of" type="date" required></div>
       </div>
+      <details id="csv-fields" open><summary>Review or edit CSV</summary>
       <label for="grade-csv">Grades CSV</label><code>course,letter,percent</code>
       <textarea id="grade-csv" rows="4" required spellcheck="false"></textarea>
       <label for="assignment-csv">Assignments CSV</label><code>course,title,due,status,points,possible,source_id</code>
       <textarea id="assignment-csv" rows="6" required spellcheck="false"></textarea>
       <p class="hint">Use YYYY-MM-DD dates. Status values are open, missing, submitted, graded, or excused. Leave unavailable scores and source IDs blank.</p>
+      </details>
       <p class="error" role="alert"></p>
       <button class="primary">Save snapshot</button>
     </form>

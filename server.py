@@ -18,6 +18,8 @@ from threading import Lock
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
+from campus import read_campus
+
 WEB = Path(__file__).with_name("web")
 DATA = Path(os.getenv("GRADEBOOK_DATA", "data"))
 ZONE = ZoneInfo("America/Phoenix")
@@ -252,9 +254,17 @@ class Handler(BaseHTTPRequestHandler):
             if not role:
                 self.json({"error": "Sign in to make changes."}, 401)
                 return
-            if path == "/api/import":
+            if path in {"/api/import", "/api/campus-preview"}:
                 if role != "parent":
                     self.json({"error": "Use the parent access key to import."}, 403)
+                    return
+                if path == "/api/campus-preview":
+                    term, grades, assignments = read_campus(
+                        field(payload.get("grades"), "copied Grades text", 200_000),
+                        field(payload.get("assignments"), "copied Assignments text", 450_000),
+                    )
+                    self.json(normalize({"student": payload.get("student"), "term": term,
+                                         "asOf": today(), "grades": grades, "assignments": assignments}))
                     return
                 grades = list(csv_rows(payload.get("grades"), ["course", "letter", "percent"]))
                 assignments = list(csv_rows(payload.get("assignments"),

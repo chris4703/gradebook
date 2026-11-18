@@ -44,7 +44,7 @@ function showLogin() {
   $("content").hidden = true;
   $("top-actions").hidden = true;
   for (const id of ["work-list", "grade-list"]) $(id).replaceChildren();
-  for (const id of ["key", "student", "term", "as-of", "grade-csv", "assignment-csv", "note"]) $(id).value = "";
+  for (const id of ["key", "student", "term", "as-of", "grade-csv", "assignment-csv", "campus-student", "campus-grades", "campus-assignments", "note"]) $(id).value = "";
   for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
   $("signin").hidden = false;
   $("key").focus();
@@ -84,7 +84,8 @@ function renderPlan() {
   $("goal-track").replaceChildren(...track);
   $("goal-summary").textContent = met + " of " + bands.length + " classes at goal";
   const trusted = met === bands.length;
-  const confirm = lowest === "F" || unknown;
+  const oneHour = lowest === "D" || lowest === "F";
+  const confirm = unknown && !oneHour;
   $("plan-caption").textContent = trusted ? "You’ve reached the grade goal." :
     confirm ? "Check the plan with a parent." : "Today’s plan · Lowest grade " + lowest;
   $("homework-time").textContent = trusted ? "Optional check-in" : "3:45–4:45 PM";
@@ -92,7 +93,7 @@ function renderPlan() {
   $("free-time").hidden = trusted;
   $("screen-label").textContent = trusted ? "Screen time" : "After dinner";
   $("screen-rule").textContent = trusted ? "You manage your screen time" :
-    confirm ? "Check with a parent" : (lowest === "D" ? "1 hour" : "3 hours") + " of PC or iPad";
+    confirm ? "Check with a parent" : (oneHour ? "1 hour" : "3 hours") + " of PC or iPad";
   $("screen-detail").textContent = trusted ? "Your family trusts you to decide." :
     confirm ? "A grade needs a family decision." : "Daily total across both devices.";
   $("homework").setAttribute("aria-pressed", String(state.homework));
@@ -248,15 +249,51 @@ form("import-form", async () => {
   $("status").textContent = "School snapshot updated.";
   $("status").hidden = false;
 });
-$("import-button").addEventListener("click", () => {
-  $("student").value = state.student || "";
-  $("term").value = state.term || "";
-  $("as-of").value = state.asOf || state.today;
+function openImport(snapshot, fromCampus) {
+  $("student").value = snapshot.student || "";
+  $("term").value = snapshot.term || "";
+  $("as-of").value = fromCampus ? snapshot.asOf : state.today;
   $("as-of").max = state.today;
-  $("grade-csv").value = csv(["course", "letter", "percent"], state.grades);
-  $("assignment-csv").value = csv(["course", "title", "due", "status", "points", "possible", "source_id"], state.assignments);
+  $("grade-csv").value = csv(["course", "letter", "percent"], snapshot.grades);
+  $("assignment-csv").value = csv(["course", "title", "due", "status", "points", "possible", "source_id"], snapshot.assignments);
+  $("csv-fields").open = !fromCampus;
+  const summary = $("import-summary");
+  summary.replaceChildren();
+  if (fromCampus) {
+    const missing = snapshot.assignments.filter((row) => row.status === "missing").length;
+    summary.append(
+      element("strong", snapshot.grades.length + " class grades and " + snapshot.assignments.length +
+        " assignments (" + missing + " marked missing)."),
+      element("br"),
+      document.createTextNode(snapshot.grades.map((row) => row.course + " " + (row.letter || "—")).join(" · ")),
+    );
+  } else {
+    summary.textContent = "Edit the school records below or paste CSV with the column headers shown.";
+  }
   $("import-dialog").querySelector(".error").textContent = "";
   $("import-dialog").showModal();
+}
+form("campus-form", async () => {
+  const snapshot = await api("campus-preview", {
+    student: $("campus-student").value,
+    grades: $("campus-grades").value,
+    assignments: $("campus-assignments").value,
+  });
+  $("campus-dialog").close();
+  openImport(snapshot, true);
+});
+$("campus-dialog").addEventListener("close", () => {
+  $("campus-grades").value = "";
+  $("campus-assignments").value = "";
+});
+$("import-button").addEventListener("click", () => {
+  $("campus-student").value = state.student || "";
+  $("campus-dialog").querySelector(".error").textContent = "";
+  $("campus-dialog").showModal();
+});
+$("manual-import").addEventListener("click", () => {
+  $("campus-dialog").close();
+  openImport(state, false);
 });
 $("logout").addEventListener("click", () => run($("logout"), async () => {
   await api("logout", {});
