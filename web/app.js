@@ -263,12 +263,27 @@ function classPercent(groups) {
   return 100 * groups.reduce((sum, group) => sum + group.weight * group.earned / group.possible, 0) / total("weight");
 }
 
+function estimatedLetter(percent) {
+  const rounded = Math.round(percent);
+  if (rounded >= 90) return "A";
+  if (rounded >= 80) return "B";
+  if (rounded >= 70) return "C";
+  if (rounded >= 60) return "D";
+  return "F";
+}
+
+function displayWhatIfGrade(id, percent, letter) {
+  const field = $(id);
+  field.textContent = percent == null ? "—" : formatNumber.format(percent) + "%";
+  if (letter) field.append(" ", element("span", letter, "whatif-letter"));
+}
+
 function renderProjection(course, entries) {
-  const actual = state.grades.find((grade) => grade.course === course)?.percent;
+  const grade = state.grades.find((row) => row.course === course);
+  const actual = grade?.percent;
   const model = state.models?.[course];
-  const display = (value) => value == null ? "—" : formatNumber.format(value) + "%";
-  $("whatif-actual").textContent = display(actual);
-  $("whatif-projected").textContent = "—";
+  displayWhatIfGrade("whatif-actual", actual, grade?.letter);
+  displayWhatIfGrade("whatif-projected", null, null);
   $("whatif-change").textContent = "—";
   if (!model || actual == null) return;
   const groups = model.groups.map((group) => ({ ...group }));
@@ -284,7 +299,8 @@ function renderProjection(course, entries) {
     }
   }
   const change = Math.round((classPercent(groups) - classPercent(model.groups)) * 100) / 100;
-  $("whatif-projected").textContent = display(actual + change);
+  const projected = actual + change;
+  displayWhatIfGrade("whatif-projected", projected, change === 0 ? grade.letter : estimatedLetter(projected));
   $("whatif-change").textContent = (change > 0 ? "+" : "") + formatNumber.format(change) + " pp";
 }
 

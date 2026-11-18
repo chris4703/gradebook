@@ -162,3 +162,6 @@ summary { cursor: pointer; color: var(--teal); font-weight: 650; }
 .whatif-score { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: .82rem; min-width: 105px; }
 .whatif-score input { width: 70px; padding: 7px; }
 .whatif-score input:invalid { border-color: var(--red); background: #fff4f2; }
+
+.whatif-totals .whatif-letter { color: var(--teal); background: #d5ede7; border-radius: 5px; font-size: .76em; font-weight: 740; padding: 2px 5px; white-space: nowrap; }
+#whatif-letter-note { margin-top: 4px; font-size: .76rem; color: var(--muted); }
