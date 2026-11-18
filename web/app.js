@@ -11,6 +11,7 @@ const assignmentColumns = ["course", "title", "due", "status", "points", "possib
 const formatNumber = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 let state;
 let filter = "all";
+let workSort = null;
 let selectedId;
 let showingWhatIf = false;
 const trialScores = new Map();
@@ -44,6 +45,7 @@ async function api(path, payload) {
 
 function showLogin() {
   state = undefined;
+  workSort = null;
   trialScores.clear();
   showingWhatIf = false;
   $("whatif").hidden = true;
@@ -192,8 +194,24 @@ function renderWork() {
     .map((row) => ({ ...row, bucket: bucket(row) }));
   renderRecovery(rows);
   const order = ["missing", "today", "past", "upcoming", "review", "done"];
-  rows.sort((left, right) => order.indexOf(left.bucket) - order.indexOf(right.bucket) ||
-    (left.bucket === "review" || left.bucket === "done" ? right.due.localeCompare(left.due) : left.due.localeCompare(right.due)));
+  rows.sort((left, right) => {
+    if (workSort) {
+      const { key, direction } = workSort;
+      const primary = left[key].localeCompare(right[key]) * direction;
+      const secondary = key === "course" ? left.due.localeCompare(right.due) : left.course.localeCompare(right.course);
+      return primary || secondary || left.title.localeCompare(right.title);
+    }
+    return order.indexOf(left.bucket) - order.indexOf(right.bucket) ||
+      (left.bucket === "review" || left.bucket === "done" ? right.due.localeCompare(left.due) : left.due.localeCompare(right.due));
+  });
+  for (const key of ["course", "due"]) {
+    const button = $("sort-" + key);
+    const active = workSort?.key === key;
+    if (active) button.parentElement.setAttribute("aria-sort", workSort.direction === 1 ? "ascending" : "descending");
+    else button.parentElement.removeAttribute("aria-sort");
+    button.lastElementChild.textContent = active ? (workSort.direction === 1 ? "↑" : "↓") : "↕";
+  }
+  $("reset-work-sort").hidden = !workSort;
   const tracked = rows.filter((row) => {
     const progress = state.progress[row.id];
     return progress?.step || progress?.note;
@@ -215,24 +233,43 @@ function renderWork() {
   $("tabs").replaceChildren(...["all", "missing", "past", "today", "upcoming", "review", "tracked", "record"].map(makeTab));
   $("work-caption").textContent = work.length ? work.length + " items to plan or follow up on" : "You’re caught up in this view.";
   const shown = filter === "record" ? rows : filter === "tracked" ? tracked : work.filter((row) => filter === "all" || row.bucket === filter);
-  $("work-list").replaceChildren(...(shown.length ? shown.map(assignment) :
-    [element("p", "Nothing to follow up on in this view.", "empty")]));
+  if (shown.length) {
+    $("work-list").replaceChildren(...shown.map(assignment));
+  } else {
+    const row = element("tr");
+    const message = element("td", "No assignments in this view.", "empty");
+    message.colSpan = 5;
+    row.append(message);
+    $("work-list").replaceChildren(row);
+  }
 }
 
 function assignment(row) {
-  const line = element("article", null, "assignment");
-  const copy = element("div");
-  const meta = [row.course, "Due " + shortDate.format(dateObject(row.due))];
-  const score = percentage(row);
-  if (row.points != null) meta.push(formatNumber.format(row.points) + "/" + formatNumber.format(row.possible) + " pts");
-  else meta.push(row.possible == null ? "Points not listed" : pointsLabel(row.possible) + " possible");
-  if (score != null) meta.push(formatNumber.format(score) + "%");
-  if (row.bucket === "past" && row.possible != null) meta.push("Check whether it was submitted");
+  const line = element("tr", null, "assignment");
+  const title = element("th", null, "assignment-title");
+  title.scope = "row";
+  title.append(element("div", row.title));
   const progress = state.progress[row.id];
-  copy.append(element("h3", row.title), element("p", meta.join("  ·  ")));
-  if (progress?.step) copy.append(element("p", steps[progress.step]));
-  if (progress?.note) copy.append(element("p", progress.note));
-  const actions = element("div", null, "row-action");
+  if (progress?.step) title.append(element("p", steps[progress.step]));
+  if (progress?.note) title.append(element("p", progress.note));
+  if (row.bucket === "past" && row.possible != null) title.append(element("p", "Check whether it was submitted"));
+  const course = element("td", row.course, "assignment-course");
+  const due = element("td", null, "assignment-due");
+  const date = element("time", shortDate.format(dateObject(row.due)));
+  date.dateTime = row.due;
+  due.append(date);
+  const points = element("td", null, "assignment-points");
+  const score = percentage(row);
+  if (row.points != null) {
+    points.append(element("span", formatNumber.format(row.points) + "/" + formatNumber.format(row.possible)));
+  } else if (row.possible != null) {
+    points.append(element("span", formatNumber.format(row.possible)), element("p", "possible"));
+  } else if (score == null) {
+    points.append(element("span", "—", "points-unlisted"));
+    points.lastElementChild.setAttribute("aria-label", "Points not listed");
+  }
+  if (score != null) points.append(element("p", formatNumber.format(score) + "%"));
+  const actions = element("td", null, "row-action work-status");
   const tomorrow = (dateObject(row.due) - dateObject(state.today)) === 86400000;
   const tag = row.bucket === "past" ? "Check status" :
     row.bucket === "upcoming" && tomorrow ? "Due tomorrow" : labels[row.bucket] ||
@@ -242,7 +279,7 @@ function assignment(row) {
   button.setAttribute("aria-label", "Next step for " + row.title);
   button.addEventListener("click", () => openProgress(row, tag));
   actions.append(button);
-  line.append(copy, actions);
+  line.append(title, course, due, points, actions);
   return line;
 }
 
@@ -516,6 +553,18 @@ $("enrich-dialog").addEventListener("close", () => {
   $("assignment-detail").value = "";
 });
 $("recovery-sort").addEventListener("change", renderWork);
+for (const key of ["course", "due"]) {
+  $("sort-" + key).addEventListener("click", () => {
+    workSort = { key, direction: workSort?.key === key ? -workSort.direction : 1 };
+    renderWork();
+  });
+}
+$("reset-work-sort").addEventListener("click", () => {
+  const key = workSort.key;
+  workSort = null;
+  renderWork();
+  $("sort-" + key).focus();
+});
 $("course").addEventListener("change", renderWork);
 for (const button of document.querySelectorAll("[data-close]")) {
   button.addEventListener("click", () => $(button.dataset.close).close());

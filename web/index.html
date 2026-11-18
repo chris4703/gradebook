@@ -91,11 +91,31 @@
           <section class="card work-card" aria-labelledby="work-heading">
             <header class="section-head">
               <div><h2 id="work-heading">Schoolwork</h2><p id="work-caption"></p></div>
-              <label class="sr-only" for="course">Filter by class</label>
-              <select id="course"><option value="">All classes</option></select>
+              <div class="work-controls">
+                <button id="reset-work-sort" class="plain" type="button" hidden>Reset sort</button>
+                <label class="sr-only" for="course">Filter by class</label>
+                <select id="course"><option value="">All classes</option></select>
+              </div>
             </header>
             <div id="tabs" class="filters" role="group" aria-label="Assignment filter"></div>
-            <div id="work-list"></div>
+            <p class="work-scroll-hint">Scroll to see more columns.</p>
+            <div class="work-scroll" role="region" aria-label="Schoolwork table" tabindex="0">
+              <table class="work-table" aria-labelledby="work-heading">
+                <colgroup>
+                  <col class="assignment-col"><col class="class-col"><col class="due-col"><col class="points-col"><col class="status-col">
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th scope="col">Assignment</th>
+                    <th scope="col"><button id="sort-course" type="button">Class <span aria-hidden="true">↕</span></button></th>
+                    <th scope="col"><button id="sort-due" type="button">Due Date <span aria-hidden="true">↕</span></button></th>
+                    <th scope="col">Points</th>
+                    <th scope="col" class="work-status">Status</th>
+                  </tr>
+                </thead>
+                <tbody id="work-list"></tbody>
+              </table>
+            </div>
           </section>
         </div>
 
