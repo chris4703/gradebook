@@ -12,6 +12,8 @@ const formatNumber = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }
 let state;
 let filter = "all";
 let selectedId;
+let showingWhatIf = false;
+const trialScores = new Map();
 
 function dateObject(iso) {
   return new Date(iso + "T00:00:00Z");
@@ -42,6 +44,10 @@ async function api(path, payload) {
 
 function showLogin() {
   state = undefined;
+  trialScores.clear();
+  showingWhatIf = false;
+  $("whatif").hidden = true;
+  $("whatif-assignments").replaceChildren();
   $("dashboard").hidden = true;
   $("content").hidden = true;
   $("top-actions").hidden = true;
@@ -53,7 +59,11 @@ function showLogin() {
 }
 
 async function refresh() {
-  state = await api("dashboard");
+  const latest = await api("dashboard");
+  if (JSON.stringify(state?.models) !== JSON.stringify(latest.models) ||
+      JSON.stringify(state?.assignments) !== JSON.stringify(latest.assignments) ||
+      JSON.stringify(state?.grades) !== JSON.stringify(latest.grades)) trialScores.clear();
+  state = latest;
   $("signin").hidden = true;
   $("top-actions").hidden = false;
   $("dashboard").hidden = false;
@@ -64,7 +74,9 @@ async function refresh() {
   $("snapshot").textContent = state.asOf
     ? state.term + "  ·  Infinite Campus snapshot from " + shortDate.format(dateObject(state.asOf))
     : "Waiting for the first school snapshot";
-  $("content").hidden = !state.student;
+  $("whatif-button").hidden = !state.student;
+  $("dashboard-hero").hidden = showingWhatIf;
+  $("content").hidden = !state.student || showingWhatIf;
   $("empty").hidden = Boolean(state.student);
   $("goal-track").replaceChildren();
   $("goal-summary").textContent = "";
@@ -76,6 +88,7 @@ async function refresh() {
   if (courses.includes(previous)) $("course").value = previous;
   renderPlan();
   renderWork();
+  if (showingWhatIf) renderWhatIf();
 }
 
 function renderPlan() {
@@ -244,6 +257,102 @@ function openProgress(row, label) {
   $("progress-dialog").showModal();
 }
 
+function classPercent(groups) {
+  const total = (field) => groups.reduce((sum, group) => sum + group[field], 0);
+  if (groups[0].weight === null) return 100 * total("earned") / total("possible");
+  return 100 * groups.reduce((sum, group) => sum + group.weight * group.earned / group.possible, 0) / total("weight");
+}
+
+function renderProjection(course, entries) {
+  const actual = state.grades.find((grade) => grade.course === course)?.percent;
+  const model = state.models?.[course];
+  const display = (value) => value == null ? "—" : formatNumber.format(value) + "%";
+  $("whatif-actual").textContent = display(actual);
+  $("whatif-projected").textContent = "—";
+  $("whatif-change").textContent = "—";
+  if (!model || actual == null) return;
+  const groups = model.groups.map((group) => ({ ...group }));
+  for (const row of entries) {
+    if (!trialScores.has(row.id)) continue;
+    const group = groups[model.assignments[row.id]];
+    const points = trialScores.get(row.id);
+    if (row.points == null) {
+      group.earned += points;
+      group.possible += row.possible;
+    } else {
+      group.earned += points - row.points;
+    }
+  }
+  const change = Math.round((classPercent(groups) - classPercent(model.groups)) * 100) / 100;
+  $("whatif-projected").textContent = display(actual + change);
+  $("whatif-change").textContent = (change > 0 ? "+" : "") + formatNumber.format(change) + " pp";
+}
+
+function renderWhatIf() {
+  const select = $("whatif-course");
+  const previous = select.value;
+  select.replaceChildren(...state.grades.map((row) => new Option(row.course, row.course)));
+  if (state.grades.some((row) => row.course === previous)) select.value = previous;
+  const course = select.value;
+  const model = state.models?.[course];
+  const entries = state.assignments.filter((row) => row.course === course && model?.assignments[row.id] != null &&
+    row.possible != null && row.status !== "excused");
+  entries.sort((a, b) => Number(b.status === "missing") - Number(a.status === "missing") || b.due.localeCompare(a.due));
+  $("whatif-note").textContent = !model
+    ? "A matching Campus class breakdown is needed before this class can be simulated."
+    : entries.length
+      ? "Change any scores below. Entering a score for ungraded work adds its points to the grade calculation."
+      : "No assignments with points in this class are available to simulate.";
+  $("whatif-assignments").replaceChildren(...entries.map((row) => {
+    const field = element("div", null, "whatif-row");
+    const label = element("label", row.title);
+    label.htmlFor = "trial-" + row.id;
+    const score = row.points == null ? "Ungraded" : formatNumber.format(row.points) + " earned";
+    const detail = element("p", score + " · " + pointsLabel(row.possible) + " possible");
+    const scoreField = element("div", null, "whatif-score");
+    const input = element("input");
+    input.type = "number";
+    input.id = label.htmlFor;
+    input.min = "0";
+    input.max = String(Math.max(row.possible, row.points ?? 0));
+    input.step = "any";
+    input.inputMode = "decimal";
+    input.placeholder = row.points ?? "";
+    input.value = trialScores.get(row.id) ?? "";
+    const range = element("span", "/ " + formatNumber.format(row.possible));
+    input.addEventListener("input", () => {
+      if (input.value === "" || !input.validity.valid) trialScores.delete(row.id);
+      else trialScores.set(row.id, input.valueAsNumber);
+      renderProjection(course, entries);
+    });
+    scoreField.append(input, range);
+    const title = element("div");
+    title.append(label, detail);
+    field.append(title, scoreField);
+    return field;
+  }));
+  renderProjection(course, entries);
+}
+
+function toggleWhatIf(show) {
+  showingWhatIf = show;
+  $("whatif").hidden = !show;
+  $("content").hidden = show;
+  $("dashboard-hero").hidden = show;
+  $("whatif-button").setAttribute("aria-expanded", String(show));
+  if (show) renderWhatIf();
+}
+
+$("whatif-button").addEventListener("click", () => toggleWhatIf(!showingWhatIf));
+$("grades-link").addEventListener("click", () => {
+  if (showingWhatIf) toggleWhatIf(false);
+});
+$("whatif-course").addEventListener("change", renderWhatIf);
+$("whatif-reset").addEventListener("click", () => {
+  trialScores.clear();
+  renderWhatIf();
+});
+
 function csv(columns, rows = []) {
   const quote = (value) => '"' + String(value ?? "").replaceAll('"', '""') + '"';
   return [columns.join(","), ...rows.map((row) => columns.map((key) => quote(row[key])).join(","))].join("\n");
@@ -295,13 +404,19 @@ form("progress-form", async () => {
   await refresh();
 });
 form("import-form", async () => {
+  const hadModels = Object.keys(state.models || {}).length > 0;
   await api("import", {
     student: $("student").value, term: $("term").value, asOf: $("as-of").value,
     grades: $("grade-csv").value, assignments: $("assignment-csv").value,
   });
   $("import-dialog").close();
   await refresh();
-  $("status").textContent = "School snapshot updated.";
+  const needsBreakdown = state.grades.filter((row) => !state.models?.[row.course]).map((row) => row.course);
+  $("status").textContent = "School snapshot updated." + (hadModels
+    ? needsBreakdown.length
+      ? " Class breakdown needed for " + needsBreakdown.join(", ") + "."
+      : " Class weights and totals updated."
+    : "");
   $("status").hidden = false;
 });
 function openImport(snapshot, fromCampus) {
@@ -359,7 +474,7 @@ $("homework").addEventListener("click", () => run($("homework"), async () => {
   await refresh();
 }));
 $("enrich-button").addEventListener("click", () => {
-  $("grading-course").replaceChildren(...state.grades.map((row) => new Option(row.course, row.course)));
+  $("grading-course").replaceChildren(...state.grades.map((row) => new Option(row.course + (state.models?.[row.course] ? "" : " (needs breakdown)"), row.course)));
   const eligible = state.assignments.filter((row) => row.points == null);
   $("points-form").hidden = !eligible.length;
   $("points-assignment").replaceChildren(...eligible.map((row) =>

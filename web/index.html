@@ -13,7 +13,8 @@
     <div class="shell top-inner">
       <a class="brand" href="/" aria-label="Gradebook home"><span class="logo" aria-hidden="true">▤</span>Gradebook</a>
       <div class="top-actions" id="top-actions" hidden>
-        <a href="#grades">Class grades</a>
+        <a href="#grades" id="grades-link">Class grades</a>
+        <button id="whatif-button" class="plain" aria-controls="whatif" aria-expanded="false" hidden>What-If</button>
         <button id="import-button" class="plain" hidden>Update snapshot</button>
         <button id="logout" class="plain">Sign out</button>
       </div>
@@ -34,7 +35,7 @@
     </section>
     <div id="dashboard" hidden>
       <p id="status" class="notice" role="status" hidden></p>
-      <section class="hero">
+      <section id="dashboard-hero" class="hero">
         <div class="hero-copy">
           <p id="date" class="hero-date"></p>
           <h1 id="greeting">School dashboard</h1>
@@ -48,6 +49,23 @@
         </div>
       </section>
 
+      <section id="whatif" class="card whatif" aria-labelledby="whatif-heading" hidden>
+        <header class="section-head">
+          <div><h2 id="whatif-heading">What-If</h2><p>Try different scores to see how your class grade could change. Trial scores disappear if you reload.</p></div>
+          <button id="whatif-reset" class="reset-button" type="button">Reset to actual</button>
+        </header>
+        <div class="whatif-body">
+          <label for="whatif-course">Class</label>
+          <select id="whatif-course"></select>
+          <div class="whatif-totals" aria-live="polite">
+            <div><span>Actual grade</span><strong id="whatif-actual"></strong></div>
+            <div><span>Projected grade</span><strong id="whatif-projected"></strong></div>
+            <div><span>Change</span><strong id="whatif-change"></strong></div>
+          </div>
+          <p id="whatif-note"></p>
+          <div id="whatif-assignments"></div>
+        </div>
+      </section>
       <div id="empty" class="card empty" hidden>Import an Infinite Campus snapshot to see schoolwork and class grades.</div>
       <div id="content" class="dashboard-grid" hidden>
         <div class="left-column">

@@ -18,7 +18,7 @@ from threading import Lock
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
-from campus import course_estimates, detail_points, read_campus
+from campus import course_model, detail_points, read_campus, rebase_models, replacement_estimates
 
 WEB = Path(__file__).with_name("web")
 DATA = Path(os.getenv("GRADEBOOK_DATA", "data"))
@@ -152,6 +152,7 @@ def replace_snapshot(payload):
                 for row in snapshot["assignments"]:
                     if row["id"] in prior and row["possible"] in {None, prior[row["id"]]}:
                         row.update(possible=prior[row["id"]], points_verified=True)
+                snapshot["models"], snapshot["estimates"] = rebase_models(old, snapshot)
         db.execute("INSERT OR REPLACE INTO snapshot VALUES (1, ?)", (json.dumps(snapshot),))
 
 
@@ -248,7 +249,9 @@ class Handler(BaseHTTPRequestHandler):
             snapshot = json.loads(row[0])
             if path == "/api/course-breakdown":
                 course = field(payload.get("course"), "a class", 100)
-                estimates = course_estimates(content, snapshot, course, today())
+                model = course_model(content, snapshot, course, today())
+                estimates = replacement_estimates(model, snapshot["assignments"])
+                snapshot.setdefault("models", {})[course] = model
                 snapshot.setdefault("estimates", {})[course] = estimates
                 count = len(estimates)
             else:

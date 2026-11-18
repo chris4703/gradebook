@@ -1,5 +1,6 @@
 """Read text a parent copies from the Campus Parent Grades and Assignments pages."""
 import re
+from copy import deepcopy
 from datetime import date
 
 DATE = r"(\d{1,2})/(\d{1,2})/(\d{4})"
@@ -119,7 +120,7 @@ def read_campus(grades, assignments):
     return term, grade_rows, assignments_from_text(assignments, start, end)
 
 
-def course_estimates(text, snapshot, course, as_of):
+def course_model(text, snapshot, course, as_of):
     if snapshot.get("asOf") != as_of:
         raise ValueError("Update the Campus snapshot before adding the current class breakdown.")
     grade = next((row for row in snapshot["grades"] if row["course"] == course), None)
@@ -154,43 +155,115 @@ def course_estimates(text, snapshot, course, as_of):
         weight_total = sum(cat["weight"] for cat in categories)
         if not weight_total:
             raise ValueError("No positive grading weights were found.")
-        for cat in categories:
-            cat["per_point"] = 100 * cat["weight"] / weight_total / cat["possible"]
     elif all(cat["weight"] is None for cat in categories) and "Grade Total" in rows:
         total_index = rows.index("Grade Total") + 1
         total = POINTS.fullmatch(rows[total_index]) if total_index < len(rows) else None
         if not total or not float(total[2]) or any(abs(sum(cat[key] for cat in categories) - float(value)) > .02
                 for key, value in zip(("earned", "possible"), total.groups())):
             raise ValueError("Category totals do not match the course’s point total.")
-        for cat in categories:
-            cat["per_point"] = 100 / float(total[2])
     else:
         raise ValueError("Campus did not provide a consistent grading formula for this course.")
-    if abs(sum(cat["earned"] * cat["per_point"] for cat in categories) - grade["percent"]) > .03:
+
+    groups = [{key: v for key, v in cat.items() if key != "index"} for cat in categories]
+    model = {"groups": groups, "assignments": {}}
+    if not reconciles(model, grade["percent"]):
         raise ValueError("The class breakdown does not match the saved grade. Refresh the Campus snapshot and try again.")
 
     current = {(row["title"], row["due"]): row for row in snapshot["assignments"] if row["course"] == course}
-    estimates = {}
-    for cat, following in zip(categories, [*categories[1:], {"index": len(rows)}]):
+    for index, (cat, following) in enumerate(zip(categories, [*categories[1:], {"index": len(rows)}])):
         category_rows = rows[cat["index"]:following["index"]]
         starts = [i for i, row in enumerate(category_rows) if row == "Assignment"]
         for a, b in zip(starts, [*starts[1:], len(category_rows)]):
             block = category_rows[a+1:b]
-            if len(block) < 3 or any(re.match(r"^(?:DROPPED|EXCUSED|EXEMPT|NOT COUNTED|EXCLUDED)\b", part, re.I)
+            if len(block) < 2 or any(re.match(r"^(?:DROPPED|EXCUSED|EXEMPT|NOT COUNTED|EXCLUDED)\b", part, re.I)
                                      for part in block[2:]):
                 continue
             due = re.match(rf"Due:\s*{DATE}\b", block[1])
             score_index = next((i+1 for i, part in enumerate(block[:-1]) if part == "Score"), None)
             score = POINTS.fullmatch(block[score_index]) if score_index is not None else None
-            if not due or not score:
+            if not due:
                 continue
             row = current.get((block[0], campus_date(due.groups()).isoformat()))
-            if not row or row["status"] not in {"missing", "graded"} or (
-                    row["points"], row["possible"]) != tuple(map(float, score.groups())):
+            if not row or row["status"] == "excused":
                 continue
-            gain = max(0, row["possible"] - row["points"])
-            estimates[row["id"]] = {"category": cat["name"], "gain": round(gain * cat["per_point"], 3)}
+            if score and (row["points"], row["possible"]) == tuple(map(float, score.groups())):
+                model["assignments"][row["id"]] = index
+            elif not score and row["points"] is None and row.get("score_percent") is None:
+                model["assignments"][row["id"]] = index
+    return model
+
+
+def class_percent(groups):
+    if any(group["possible"] <= 0 for group in groups):
+        return None
+    if groups[0]["weight"] is None:
+        return 100 * sum(group["earned"] for group in groups) / sum(group["possible"] for group in groups)
+    weight = sum(group["weight"] for group in groups)
+    return 100 * sum(group["weight"] * group["earned"] / group["possible"] for group in groups) / weight
+
+
+def reconciles(model, percent):
+    calculated = class_percent(model["groups"])
+    return percent is not None and calculated is not None and abs(calculated - percent) <= .03
+
+
+def row_score(row):
+    if row is None or row["status"] == "excused":
+        return 0, 0
+    if row.get("score_percent") is not None and row["points"] is None:
+        return None
+    return (row["points"], row["possible"]) if row["points"] is not None else (0, 0)
+
+
+def replacement_estimates(model, rows):
+    groups = model["groups"]
+    total_possible = sum(group["possible"] for group in groups)
+    total_weight = sum(group["weight"] or 0 for group in groups)
+    estimates = {}
+    for row in rows:
+        group_index = model["assignments"].get(row["id"])
+        if group_index is None or row["status"] not in {"missing", "graded"} or row["points"] is None:
+            continue
+        group = groups[group_index]
+        recoverable = max(0, row["possible"] - row["points"])
+        if total_weight:
+            gain = 100 * group["weight"] / total_weight * recoverable / group["possible"]
+        else:
+            gain = 100 * recoverable / total_possible
+        estimates[row["id"]] = {"category": group["name"], "gain": round(gain, 3)}
     return estimates
+
+
+def rebase_models(old, new):
+    previous = {row["id"]: row for row in old["assignments"]}
+    current = {row["id"]: row for row in new["assignments"]}
+    models, estimates = {}, {}
+    for grade in new["grades"]:
+        course = grade["course"]
+        saved = old.get("models", {}).get(course)
+        if not saved:
+            continue
+        model = deepcopy(saved)
+        ids = {key for records in (previous, current) for key, row in records.items() if row["course"] == course}
+        supported = True
+        for key in sorted(ids):
+            before, after = previous.get(key), current.get(key)
+            a, b = row_score(before), row_score(after)
+            if a == b:
+                continue
+            index = model["assignments"].get(key)
+            if index is None or a is None or b is None:
+                supported = False
+                break
+            group = model["groups"][index]
+            group["earned"] += b[0] - a[0]
+            group["possible"] += b[1] - a[1]
+        if not supported or not reconciles(model, grade["percent"]):
+            continue
+        model["assignments"] = {key: index for key, index in model["assignments"].items() if key in current}
+        models[course] = model
+        estimates[course] = replacement_estimates(model, [current[key] for key in sorted(ids & current.keys())])
+    return models, estimates
 
 
 def detail_points(text, assignment):
