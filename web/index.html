@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Gradebook · School dashboard</title>
+  <link rel="stylesheet" href="/style.css">
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell top-inner">
+      <a class="brand" href="/" aria-label="Gradebook home"><span class="logo" aria-hidden="true">▤</span>Gradebook</a>
+      <div class="top-actions" id="top-actions" hidden>
+        <a href="#grades">Class grades</a>
+        <button id="import-button" class="plain" hidden>Update snapshot</button>
+        <button id="logout" class="plain">Sign out</button>
+      </div>
+    </div>
+  </header>
+  <main class="shell">
+    <p id="loading" role="status">Opening Gradebook…</p>
+    <section id="signin" class="signin card" hidden>
+      <span class="logo" aria-hidden="true">▤</span>
+      <h1>Open Gradebook</h1>
+      <p>Enter your family or parent access key.</p>
+      <form id="login-form">
+        <label for="key">Access key</label>
+        <input type="password" id="key" required autocomplete="current-password">
+        <button class="primary">Sign in</button>
+        <p class="error" id="login-error" role="alert"></p>
+      </form>
+    </section>
+    <div id="dashboard" hidden>
+      <p id="status" class="notice" role="status" hidden></p>
+      <section class="hero">
+        <div class="hero-copy">
+          <p id="date" class="hero-date"></p>
+          <h1 id="greeting">School dashboard</h1>
+          <p id="snapshot" class="hero-source"></p>
+        </div>
+        <div class="goal">
+          <p>Grade goal</p>
+          <div class="goal-value">B<span> or higher<br> in every class</span></div>
+          <div id="goal-track" class="goal-track" aria-hidden="true"></div>
+          <p id="goal-summary" class="goal-summary"></p>
+        </div>
+      </section>
+
+      <div id="empty" class="card empty" hidden>Import an Infinite Campus snapshot to see schoolwork and class grades.</div>
+      <div id="content" class="dashboard-grid" hidden>
+        <div class="left-column">
+          <section class="card work-card" aria-labelledby="work-heading">
+            <header class="section-head">
+              <div><h2 id="work-heading">Schoolwork</h2><p id="work-caption"></p></div>
+              <label class="sr-only" for="course">Filter by class</label>
+              <select id="course"><option value="">All classes</option></select>
+            </header>
+            <div id="tabs" class="filters" role="group" aria-label="Assignment filter"></div>
+            <div id="work-list"></div>
+          </section>
+        </div>
+
+        <aside class="side-column">
+          <section class="card routine" aria-labelledby="routine-heading">
+            <header class="section-head">
+              <div><h2 id="routine-heading">After school</h2><p id="plan-caption"></p></div>
+              <span class="section-icon" aria-hidden="true">◷</span>
+            </header>
+            <ol class="timeline">
+              <li><span class="dot"></span><div><span id="homework-time" class="time">3:45–4:45 PM</span><strong id="homework-title">Homework with help</strong><button id="homework" class="checkin" aria-pressed="false"><span aria-hidden="true">✓</span><span></span></button></div></li>
+              <li id="free-time"><span class="dot"></span><div><span class="time">4:45 PM–Dinner</span><strong>Screen-free free time</strong><p>Soccer, outside time, or anything off-screen.</p></div></li>
+              <li id="screen-time"><span class="dot"></span><div><span id="screen-label" class="time">After dinner</span><strong id="screen-rule"></strong><p id="screen-detail"></p></div></li>
+            </ol>
+          </section>
+
+          <section class="card grades" id="grades" aria-labelledby="grades-heading">
+            <header class="section-head">
+              <div><h2 id="grades-heading">Class grades</h2><p>Semester to date</p></div>
+              <span class="section-icon" aria-hidden="true">↗</span>
+            </header>
+            <div id="grade-list"></div>
+          </section>
+        </aside>
+      </div>
+    </div>
+  </main>
+  <dialog id="progress-dialog">
+    <form id="progress-form">
+      <div class="dialog-head"><h2 id="progress-title">Next step</h2><button class="plain" type="button" data-close="progress-dialog" aria-label="Close">✕</button></div>
+      <p id="progress-meta"></p>
+      <label for="step">Next step</label>
+      <select id="step">
+        <option value="">Choose a next step</option>
+        <option value="working">Working on it</option>
+        <option value="submitted">Turned it in</option>
+        <option value="reviewed">Reviewed mistakes</option>
+        <option value="ask">Plan to ask about a redo or retake</option>
+        <option value="asked">Asked the teacher</option>
+        <option value="resolved">Finished follow-up</option>
+      </select>
+      <label for="note">Note</label>
+      <textarea id="note" rows="3" maxlength="500" placeholder="What will you do next?"></textarea>
+      <p class="error" role="alert"></p>
+      <button class="primary">Save next step</button>
+    </form>
+  </dialog>
+  <dialog id="import-dialog">
+    <form id="import-form">
+      <div class="dialog-head"><h2>Update school snapshot</h2><button class="plain" type="button" data-close="import-dialog" aria-label="Close">✕</button></div>
+      <p>Bring in the latest school records from Infinite Campus. Use CSV with the column headers shown below. Saving replaces the school snapshot and keeps saved next steps for matching assignments.</p>
+      <label for="student">First name</label><input id="student" maxlength="40" required>
+      <div class="form-grid">
+        <div><label for="term">Term</label><input id="term" maxlength="60" required></div>
+        <div><label for="as-of">Snapshot date</label><input id="as-of" type="date" required></div>
+      </div>
+      <label for="grade-csv">Grades CSV</label><code>course,letter,percent</code>
+      <textarea id="grade-csv" rows="4" required spellcheck="false"></textarea>
+      <label for="assignment-csv">Assignments CSV</label><code>course,title,due,status,points,possible,source_id</code>
+      <textarea id="assignment-csv" rows="6" required spellcheck="false"></textarea>
+      <p class="hint">Use YYYY-MM-DD dates. Status values are open, missing, submitted, graded, or excused. Leave unavailable scores and source IDs blank.</p>
+      <p class="error" role="alert"></p>
+      <button class="primary">Save snapshot</button>
+    </form>
+  </dialog>
+</body>
+</html>

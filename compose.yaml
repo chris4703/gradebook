@@ -1,0 +1,24 @@
+services:
+  gradebook:
+    build: .
+    ports:
+      - "${BIND_IP:-127.0.0.1}:${PORT:-8786}:8080"
+    environment:
+      GRADEBOOK_FAMILY_KEY: "${GRADEBOOK_FAMILY_KEY:?Set the family access key in .env}"
+      GRADEBOOK_PARENT_KEY: "${GRADEBOOK_PARENT_KEY:?Set the parent access key in .env}"
+      GRADEBOOK_SESSION_SECRET: "${GRADEBOOK_SESSION_SECRET:?Set the session secret in .env}"
+      TZ: America/Phoenix
+    volumes:
+      - gradebook-data:/data
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+volumes:
+  gradebook-data:
