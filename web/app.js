@@ -2,11 +2,13 @@
 
 const $ = (id) => document.getElementById(id);
 const labels = {
-  missing: "Missing", past: "Past due", today: "Due today", upcoming: "Upcoming", review: "Review", all: "All", tracked: "Tracked",
+  missing: "Missing", past: "Past due", today: "Due today", upcoming: "Upcoming", review: "Review", all: "To do", tracked: "Tracked", record: "All assignments",
 };
 const steps = Object.fromEntries([...$("step").options].map(({ value, text }) => [value, text]));
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 const longDate = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" });
+const assignmentColumns = ["course", "title", "due", "status", "points", "possible", "source_id", "score_percent"];
+const formatNumber = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 let state;
 let filter = "all";
 let selectedId;
@@ -44,7 +46,7 @@ function showLogin() {
   $("content").hidden = true;
   $("top-actions").hidden = true;
   for (const id of ["work-list", "grade-list"]) $(id).replaceChildren();
-  for (const id of ["key", "student", "term", "as-of", "grade-csv", "assignment-csv", "campus-student", "campus-grades", "campus-assignments", "note"]) $(id).value = "";
+  for (const id of ["key", "student", "term", "as-of", "grade-csv", "assignment-csv", "campus-student", "campus-grades", "campus-assignments", "course-breakdown", "assignment-detail", "note"]) $(id).value = "";
   for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
   $("signin").hidden = false;
   $("key").focus();
@@ -56,6 +58,7 @@ async function refresh() {
   $("top-actions").hidden = false;
   $("dashboard").hidden = false;
   $("import-button").hidden = state.role !== "parent";
+  $("enrich-button").hidden = state.role !== "parent";
   $("date").textContent = longDate.format(dateObject(state.today));
   $("greeting").textContent = state.student ? "Hi, " + state.student + "." : "School dashboard";
   $("snapshot").textContent = state.asOf
@@ -113,7 +116,7 @@ function renderPlan() {
 }
 
 function percentage(row) {
-  return row.points == null ? null : 100 * row.points / row.possible;
+  return row.points == null ? row.score_percent ?? null : 100 * row.points / row.possible;
 }
 
 function bucket(row) {
@@ -126,10 +129,55 @@ function bucket(row) {
   return row.due === state.today ? "today" : "upcoming";
 }
 
+function recoverable(row) {
+  if (row.possible == null) return null;
+  if (row.status === "missing" && row.points == null) return row.possible;
+  return row.points == null ? null : Math.max(0, row.possible - row.points);
+}
+
+function estimate(row) {
+  return state.estimates?.[row.course]?.[row.id];
+}
+
+function pointsLabel(amount) {
+  return formatNumber.format(amount) + (amount === 1 ? " point" : " points");
+}
+
+function renderRecovery(rows) {
+  const byGrade = $("recovery-sort").value === "impact";
+  const impact = (row) => estimate(row)?.gain ?? -1;
+  const grade = new Map(state.grades.map((row) => [row.course, row.percent ?? 101]));
+  const candidates = rows.filter((row) => ["missing", "graded"].includes(row.status) &&
+    recoverable(row) > 0 && estimate(row)?.gain !== 0 && !["resolved", "submitted"].includes(state.progress[row.id]?.step));
+  candidates.sort((a, b) => (byGrade ? impact(b) - impact(a) : 0) ||
+    recoverable(b) - recoverable(a) || (grade.get(a.course) ?? 101) - (grade.get(b.course) ?? 101) ||
+    a.due.localeCompare(b.due));
+  const withEstimate = candidates.some((row) => estimate(row));
+  $("recovery-caption").textContent = byGrade && withEstimate ?
+    "Sorted by estimated class grade gain where Campus provided a matching breakdown." :
+    "Sorted by points still available. Point values can affect each class grade differently.";
+  for (const status of ["missing", "graded"]) {
+    const items = candidates.filter((row) => row.status === status).slice(0, 3);
+    const nodes = items.map((row) => {
+      const line = element("article", null, "recovery-row");
+      const title = element("button", row.title, "recovery-title");
+      title.addEventListener("click", () => openProgress(row, status === "missing" ? "Missing" : "Scored"));
+      const info = estimate(row);
+      const gain = info ? " · +" + formatNumber.format(info.gain) + " percentage points" : "";
+      line.append(title, element("p", row.course + (info ? " · " + info.category : "")),
+        element("strong", pointsLabel(recoverable(row)) + " available" + gain));
+      return line;
+    });
+    const id = status === "missing" ? "recover-missing" : "recover-graded";
+    $(id).replaceChildren(...(nodes.length ? nodes : [element("p", "No scored point opportunities in this view.", "recovery-empty")]));
+  }
+}
+
 function renderWork() {
   const className = $("course").value;
   const rows = state.assignments.filter((row) => !className || row.course === className)
     .map((row) => ({ ...row, bucket: bucket(row) }));
+  renderRecovery(rows);
   const order = ["missing", "today", "past", "upcoming", "review", "done"];
   rows.sort((left, right) => order.indexOf(left.bucket) - order.indexOf(right.bucket) ||
     (left.bucket === "review" || left.bucket === "done" ? right.due.localeCompare(left.due) : left.due.localeCompare(right.due)));
@@ -139,7 +187,7 @@ function renderWork() {
   });
   const work = rows.filter((row) => row.bucket !== "done" && state.progress[row.id]?.step !== "resolved");
   const makeTab = (key) => {
-    const count = key === "tracked" ? tracked.length : key === "all" ? work.length : work.filter((row) => row.bucket === key).length;
+    const count = key === "record" ? rows.length : key === "tracked" ? tracked.length : key === "all" ? work.length : work.filter((row) => row.bucket === key).length;
     const button = element("button", labels[key], "filter");
     button.dataset.filter = key;
     button.append(element("span", count));
@@ -151,9 +199,9 @@ function renderWork() {
     });
     return button;
   };
-  $("tabs").replaceChildren(...["all", "missing", "past", "today", "upcoming", "review", "tracked"].map(makeTab));
+  $("tabs").replaceChildren(...["all", "missing", "past", "today", "upcoming", "review", "tracked", "record"].map(makeTab));
   $("work-caption").textContent = work.length ? work.length + " items to plan or follow up on" : "You’re caught up in this view.";
-  const shown = filter === "tracked" ? tracked : work.filter((row) => filter === "all" || row.bucket === filter);
+  const shown = filter === "record" ? rows : filter === "tracked" ? tracked : work.filter((row) => filter === "all" || row.bucket === filter);
   $("work-list").replaceChildren(...(shown.length ? shown.map(assignment) :
     [element("p", "Nothing to follow up on in this view.", "empty")]));
 }
@@ -163,7 +211,10 @@ function assignment(row) {
   const copy = element("div");
   const meta = [row.course, "Due " + shortDate.format(dateObject(row.due))];
   const score = percentage(row);
-  if (score != null) meta.push(row.points + "/" + row.possible + " · " + Math.round(score) + "%");
+  if (row.points != null) meta.push(formatNumber.format(row.points) + "/" + formatNumber.format(row.possible) + " pts");
+  else meta.push(row.possible == null ? "Points not listed" : pointsLabel(row.possible) + " possible");
+  if (score != null) meta.push(formatNumber.format(score) + "%");
+  if (row.bucket === "past" && row.possible != null) meta.push("Check whether it was submitted");
   const progress = state.progress[row.id];
   copy.append(element("h3", row.title), element("p", meta.join("  ·  ")));
   if (progress?.step) copy.append(element("p", steps[progress.step]));
@@ -171,22 +222,26 @@ function assignment(row) {
   const actions = element("div", null, "row-action");
   const tomorrow = (dateObject(row.due) - dateObject(state.today)) === 86400000;
   const tag = row.bucket === "past" ? "Check status" :
-    row.bucket === "upcoming" && tomorrow ? "Due tomorrow" : labels[row.bucket] || "Closed in Campus";
+    row.bucket === "upcoming" && tomorrow ? "Due tomorrow" : labels[row.bucket] ||
+    ({ graded: "Scored", submitted: "Submitted", excused: "Excused" })[row.status] || "Closed in Campus";
   actions.append(element("span", tag, "tag " + row.bucket));
   const button = element("button", progress?.step || progress?.note ? "Edit next step" : "Next step");
   button.setAttribute("aria-label", "Next step for " + row.title);
-  button.addEventListener("click", () => {
-    selectedId = row.id;
-    $("progress-title").textContent = row.title;
-    $("progress-meta").textContent = row.course + " · " + tag;
-    $("step").value = progress?.step || "";
-    $("note").value = progress?.note || "";
-    $("progress-dialog").querySelector(".error").textContent = "";
-    $("progress-dialog").showModal();
-  });
+  button.addEventListener("click", () => openProgress(row, tag));
   actions.append(button);
   line.append(copy, actions);
   return line;
+}
+
+function openProgress(row, label) {
+  const progress = state.progress[row.id];
+  selectedId = row.id;
+  $("progress-title").textContent = row.title;
+  $("progress-meta").textContent = row.course + " · " + label;
+  $("step").value = progress?.step || "";
+  $("note").value = progress?.note || "";
+  $("progress-dialog").querySelector(".error").textContent = "";
+  $("progress-dialog").showModal();
 }
 
 function csv(columns, rows = []) {
@@ -255,7 +310,7 @@ function openImport(snapshot, fromCampus) {
   $("as-of").value = fromCampus ? snapshot.asOf : state.today;
   $("as-of").max = state.today;
   $("grade-csv").value = csv(["course", "letter", "percent"], snapshot.grades);
-  $("assignment-csv").value = csv(["course", "title", "due", "status", "points", "possible", "source_id"], snapshot.assignments);
+  $("assignment-csv").value = csv(assignmentColumns, snapshot.assignments);
   $("csv-fields").open = !fromCampus;
   const summary = $("import-summary");
   summary.replaceChildren();
@@ -303,6 +358,33 @@ $("homework").addEventListener("click", () => run($("homework"), async () => {
   await api("routine", { day: state.today, homework: !state.homework });
   await refresh();
 }));
+$("enrich-button").addEventListener("click", () => {
+  $("grading-course").replaceChildren(...state.grades.map((row) => new Option(row.course, row.course)));
+  const eligible = state.assignments.filter((row) => row.points == null);
+  $("points-form").hidden = !eligible.length;
+  $("points-assignment").replaceChildren(...eligible.map((row) =>
+    new Option(row.course + " · " + row.title, row.id)));
+  for (const id of ["weights-form", "points-form"]) $(id).querySelector(".error").textContent = "";
+  $("enrich-result").textContent = "";
+  $("enrich-dialog").showModal();
+});
+form("weights-form", async () => {
+  const result = await api("course-breakdown", { course: $("grading-course").value, text: $("course-breakdown").value });
+  $("course-breakdown").value = "";
+  $("enrich-result").textContent = "Class breakdown saved. " + result.count + " matching assignment estimates.";
+  await refresh();
+});
+form("points-form", async () => {
+  await api("assignment-points", { id: $("points-assignment").value, text: $("assignment-detail").value });
+  $("assignment-detail").value = "";
+  $("enrich-result").textContent = "Assignment points saved.";
+  await refresh();
+});
+$("enrich-dialog").addEventListener("close", () => {
+  $("course-breakdown").value = "";
+  $("assignment-detail").value = "";
+});
+$("recovery-sort").addEventListener("change", renderWork);
 $("course").addEventListener("change", renderWork);
 for (const button of document.querySelectorAll("[data-close]")) {
   button.addEventListener("click", () => $(button.dataset.close).close());

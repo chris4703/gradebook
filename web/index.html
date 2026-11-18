@@ -51,6 +51,24 @@
       <div id="empty" class="card empty" hidden>Import an Infinite Campus snapshot to see schoolwork and class grades.</div>
       <div id="content" class="dashboard-grid" hidden>
         <div class="left-column">
+          <section id="recovery" class="card recovery" aria-labelledby="recovery-heading">
+            <header class="section-head">
+              <div><h2 id="recovery-heading">Points to recover</h2><p id="recovery-caption"></p></div>
+              <label class="sr-only" for="recovery-sort">Sort recovery suggestions</label>
+              <select id="recovery-sort">
+                <option value="impact">Class grade impact</option>
+                <option value="points">Most points</option>
+              </select>
+            </header>
+            <div class="recovery-lists">
+              <div><h3>Turn in missing work</h3><div id="recover-missing"></div></div>
+              <div><h3>Ask about corrections or a retake</h3><div id="recover-graded"></div></div>
+            </div>
+            <footer class="recovery-footer">
+              <p>Estimates assume full credit replaces the current score. Ask your teacher what they’ll accept.</p>
+              <button type="button" class="plain" id="enrich-button" hidden>Add Campus points or weights</button>
+            </footer>
+          </section>
           <section class="card work-card" aria-labelledby="work-heading">
             <header class="section-head">
               <div><h2 id="work-heading">Schoolwork</h2><p id="work-caption"></p></div>
@@ -106,6 +124,26 @@
       <button class="primary">Save next step</button>
     </form>
   </dialog>
+  <dialog id="enrich-dialog">
+    <div class="dialog-head"><h2>Add Campus points or weights</h2><button class="plain" type="button" data-close="enrich-dialog" aria-label="Close">✕</button></div>
+    <form id="weights-form">
+      <label for="grading-course">Class</label><select id="grading-course" required></select>
+      <label for="course-breakdown">Class grade breakdown</label>
+      <p class="hint">In Campus Grades, click the class’s Semester To Date grade, expand all categories, then select all and copy the page.</p>
+      <textarea id="course-breakdown" rows="3" required></textarea>
+      <p class="error" role="alert"></p>
+      <button class="primary">Save class weights</button>
+    </form>
+    <form id="points-form">
+      <label for="points-assignment">Ungraded assignment</label><select id="points-assignment" required></select>
+      <label for="assignment-detail">Assignment details</label>
+      <p class="hint">Open the assignment in Campus and copy the page showing Total Points.</p>
+      <textarea id="assignment-detail" rows="3" required></textarea>
+      <p class="error" role="alert"></p>
+      <button class="primary">Save points</button>
+    </form>
+    <p id="enrich-result" role="status"></p>
+  </dialog>
   <dialog id="campus-dialog">
     <form id="campus-form">
       <div class="dialog-head"><h2>Update from Infinite Campus</h2><button class="plain" type="button" data-close="campus-dialog" aria-label="Close">✕</button></div>
@@ -138,7 +176,7 @@
       <details id="csv-fields" open><summary>Review or edit CSV</summary>
       <label for="grade-csv">Grades CSV</label><code>course,letter,percent</code>
       <textarea id="grade-csv" rows="4" required spellcheck="false"></textarea>
-      <label for="assignment-csv">Assignments CSV</label><code>course,title,due,status,points,possible,source_id</code>
+      <label for="assignment-csv">Assignments CSV</label><code>course,title,due,status,points,possible,source_id,score_percent</code>
       <textarea id="assignment-csv" rows="6" required spellcheck="false"></textarea>
       <p class="hint">Use YYYY-MM-DD dates. Status values are open, missing, submitted, graded, or excused. Leave unavailable scores and source IDs blank.</p>
       </details>

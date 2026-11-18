@@ -18,7 +18,7 @@ from threading import Lock
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
-from campus import read_campus
+from campus import course_estimates, detail_points, read_campus
 
 WEB = Path(__file__).with_name("web")
 DATA = Path(os.getenv("GRADEBOOK_DATA", "data"))
@@ -26,6 +26,7 @@ ZONE = ZoneInfo("America/Phoenix")
 COOKIE = "gradebook_session"
 STEPS = {"", "working", "submitted", "reviewed", "ask", "asked", "resolved"}
 FLAGS = {"open", "missing", "submitted", "graded", "excused"}
+ASSIGNMENT_COLUMNS = ["course", "title", "due", "status", "points", "possible", "source_id"]
 LETTER = re.compile(r"^[A-D][+-]?$|^F$")
 
 
@@ -74,9 +75,9 @@ def number(value, minimum=0, maximum=10000):
     return result
 
 
-def csv_rows(text, columns):
+def csv_rows(text, columns, extra=None):
     reader = csv.DictReader(io.StringIO(field(text, "CSV", 450_000), newline=""))
-    if reader.fieldnames != columns:
+    if reader.fieldnames != columns and (extra is None or reader.fieldnames != [*columns, extra]):
         raise ValueError(f"Expected CSV columns: {', '.join(columns)}.")
     for row in reader:
         if None in row or any(value is None for value in row.values()):
@@ -122,9 +123,10 @@ def normalize(payload):
         if status not in FLAGS:
             raise ValueError(f"Unknown assignment status: {status}.")
         points, possible = number(row.get("points"), minimum=-10000), number(row.get("possible"))
-        if (points is None) != (possible is None) or possible == 0:
-            raise ValueError("Enter both score and possible points, with possible points above zero.")
-        if points is not None and status == "open":
+        score_percent = number(row.get("score_percent"), minimum=-10000)
+        if (points is not None and possible is None) or possible == 0:
+            raise ValueError("Enter points possible above zero when providing earned points.")
+        if (points is not None or score_percent is not None) and status == "open":
             status = "graded"
         source_id = field(row.get("source_id", ""), "the source ID", 100, required=False)
         identity = ["source", source_id] if source_id else [course, title, due]
@@ -133,13 +135,23 @@ def normalize(payload):
             raise ValueError(f"Duplicate assignment: {title} ({course}, {due}). Add distinct source IDs if needed.")
         identities.add(key)
         clean["assignments"].append(dict(id=key, course=course, title=title, due=due, status=status,
-                                         points=points, possible=possible, source_id=source_id))
+                                         points=points, possible=possible, score_percent=score_percent, source_id=source_id))
     return clean
 
 
 def replace_snapshot(payload):
     snapshot = normalize(payload)
     with closing(connect()) as db, db:
+        db.execute("BEGIN IMMEDIATE")
+        previous = db.execute("SELECT payload FROM snapshot WHERE id=1").fetchone()
+        if previous:
+            old = json.loads(previous[0])
+            if old.get("student") == snapshot["student"] and old.get("term") == snapshot["term"]:
+                prior = {row["id"]: row["possible"] for row in old["assignments"]
+                         if row.get("points_verified")}
+                for row in snapshot["assignments"]:
+                    if row["id"] in prior and row["possible"] in {None, prior[row["id"]]}:
+                        row.update(possible=prior[row["id"]], points_verified=True)
         db.execute("INSERT OR REPLACE INTO snapshot VALUES (1, ?)", (json.dumps(snapshot),))
 
 
@@ -226,6 +238,29 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.json({"error": "Page not found."}, 404)
 
+    def enrich(self, path, payload):
+        content = field(payload.get("text"), "the copied Campus page", 450_000)
+        with closing(connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT payload FROM snapshot WHERE id=1").fetchone()
+            if not row:
+                raise ValueError("Import a school snapshot first.")
+            snapshot = json.loads(row[0])
+            if path == "/api/course-breakdown":
+                course = field(payload.get("course"), "a class", 100)
+                estimates = course_estimates(content, snapshot, course, today())
+                snapshot.setdefault("estimates", {})[course] = estimates
+                count = len(estimates)
+            else:
+                key = field(payload.get("id"), "an assignment", 24)
+                assignment = next((item for item in snapshot["assignments"] if item["id"] == key), None)
+                if assignment is None or assignment["points"] is not None:
+                    raise ValueError("Choose an assignment without a recorded points score.")
+                assignment.update(possible=detail_points(content, assignment), points_verified=True)
+                count = 1
+            db.execute("UPDATE snapshot SET payload=? WHERE id=1", (json.dumps(snapshot),))
+        self.json({"count": count})
+
     def do_POST(self):
         path = urlsplit(self.path).path
         origin = self.headers.get("Origin")
@@ -254,9 +289,12 @@ class Handler(BaseHTTPRequestHandler):
             if not role:
                 self.json({"error": "Sign in to make changes."}, 401)
                 return
-            if path in {"/api/import", "/api/campus-preview"}:
+            if path in {"/api/import", "/api/campus-preview", "/api/course-breakdown", "/api/assignment-points"}:
                 if role != "parent":
                     self.json({"error": "Use the parent access key to import."}, 403)
+                    return
+                if path in {"/api/course-breakdown", "/api/assignment-points"}:
+                    self.enrich(path, payload)
                     return
                 if path == "/api/campus-preview":
                     term, grades, assignments = read_campus(
@@ -267,8 +305,7 @@ class Handler(BaseHTTPRequestHandler):
                                          "asOf": today(), "grades": grades, "assignments": assignments}))
                     return
                 grades = list(csv_rows(payload.get("grades"), ["course", "letter", "percent"]))
-                assignments = list(csv_rows(payload.get("assignments"),
-                                   ["course", "title", "due", "status", "points", "possible", "source_id"]))
+                assignments = list(csv_rows(payload.get("assignments"), ASSIGNMENT_COLUMNS, "score_percent"))
                 replace_snapshot({**payload, "grades": grades, "assignments": assignments})
             elif path == "/api/routine":
                 if type(payload.get("homework")) is not bool:

@@ -59,7 +59,7 @@ def assignment_from_lines(rows, due):
         raise ValueError("An assignment is missing its title or class. Copy the whole Assignments page.")
     title, course, *details = rows
     status = "open"
-    points = possible = None
+    points = possible = score_percent = None
     for index, line in enumerate(details):
         flag = line.upper()
         if flag in FLAGS:
@@ -75,7 +75,7 @@ def assignment_from_lines(rows, due):
                 continue
             percent = PERCENT.fullmatch(details[index + 1])
             if percent:
-                points, possible = percent[1], "100"
+                score_percent = percent[1]
             else:
                 status = "graded" if status == "open" else status
         elif (not flag.startswith("COMMENTS") and flag not in OTHER_FLAGS
@@ -83,7 +83,7 @@ def assignment_from_lines(rows, due):
               and (index == 0 or details[index - 1].upper() != "SCORE")):
             raise ValueError(f"Unrecognized assignment detail for {title}. Copy the full page or use CSV.")
     return dict(course=course, title=title, due=due.isoformat(), status=status,
-                points=points, possible=possible, source_id="")
+                points=points, possible=possible, score_percent=score_percent, source_id="")
 
 
 def assignments_from_text(text, start, end):
@@ -117,3 +117,95 @@ def assignments_from_text(text, start, end):
 def read_campus(grades, assignments):
     term, start, end, grade_rows = grades_from_text(grades)
     return term, grade_rows, assignments_from_text(assignments, start, end)
+
+
+def course_estimates(text, snapshot, course, as_of):
+    if snapshot.get("asOf") != as_of:
+        raise ValueError("Update the Campus snapshot before adding the current class breakdown.")
+    grade = next((row for row in snapshot["grades"] if row["course"] == course), None)
+    rows = lines(text)
+    term = [match[1] for row in rows if (match := TERM.fullmatch(row))]
+    heading = f"({snapshot['term']}) {GRADE_LABEL}"
+    if not grade or grade["percent"] is None or rows[:1] != [course] or term != [snapshot["term"]] or heading not in rows:
+        raise ValueError("Copy the selected class’s Semester To Date breakdown for the snapshot term.")
+    start = rows.index(heading) + 1
+    end = next((i for i in range(start, len(rows)) if rows[i].startswith(f"({snapshot['term']}) ")), len(rows))
+    rows = rows[start:end]
+    categories = []
+    for i, row in enumerate(rows):
+        match = POINTS.fullmatch(row)
+        if not match or i < 1 or i+1 >= len(rows) or rows[i-1] in {"Score", "Grade Total"}:
+            continue
+        percent = PERCENT.fullmatch(rows[i+1])
+        if not percent:
+            continue
+        weight = re.fullmatch(r"Weight:\s*(\d+(?:\.\d+)?)", rows[i-1])
+        name_index = i - (2 if weight else 1)
+        if name_index < 0:
+            continue
+        earned, possible = map(float, match.groups())
+        if not possible or abs(100*earned/possible - float(percent[1])) > .03:
+            raise ValueError("Campus category percentages do not reconcile with their points.")
+        categories.append(dict(index=name_index, name=rows[name_index], earned=earned, possible=possible,
+                               weight=float(weight[1]) if weight else None))
+    if not categories:
+        raise ValueError("No category totals found. Expand every category and copy the class breakdown.")
+    if all(cat["weight"] is not None for cat in categories):
+        weight_total = sum(cat["weight"] for cat in categories)
+        if not weight_total:
+            raise ValueError("No positive grading weights were found.")
+        for cat in categories:
+            cat["per_point"] = 100 * cat["weight"] / weight_total / cat["possible"]
+    elif all(cat["weight"] is None for cat in categories) and "Grade Total" in rows:
+        total_index = rows.index("Grade Total") + 1
+        total = POINTS.fullmatch(rows[total_index]) if total_index < len(rows) else None
+        if not total or not float(total[2]) or any(abs(sum(cat[key] for cat in categories) - float(value)) > .02
+                for key, value in zip(("earned", "possible"), total.groups())):
+            raise ValueError("Category totals do not match the course’s point total.")
+        for cat in categories:
+            cat["per_point"] = 100 / float(total[2])
+    else:
+        raise ValueError("Campus did not provide a consistent grading formula for this course.")
+    if abs(sum(cat["earned"] * cat["per_point"] for cat in categories) - grade["percent"]) > .03:
+        raise ValueError("The class breakdown does not match the saved grade. Refresh the Campus snapshot and try again.")
+
+    current = {(row["title"], row["due"]): row for row in snapshot["assignments"] if row["course"] == course}
+    estimates = {}
+    for cat, following in zip(categories, [*categories[1:], {"index": len(rows)}]):
+        category_rows = rows[cat["index"]:following["index"]]
+        starts = [i for i, row in enumerate(category_rows) if row == "Assignment"]
+        for a, b in zip(starts, [*starts[1:], len(category_rows)]):
+            block = category_rows[a+1:b]
+            if len(block) < 3 or any(re.match(r"^(?:DROPPED|EXCUSED|EXEMPT|NOT COUNTED|EXCLUDED)\b", part, re.I)
+                                     for part in block[2:]):
+                continue
+            due = re.match(rf"Due:\s*{DATE}\b", block[1])
+            score_index = next((i+1 for i, part in enumerate(block[:-1]) if part == "Score"), None)
+            score = POINTS.fullmatch(block[score_index]) if score_index is not None else None
+            if not due or not score:
+                continue
+            row = current.get((block[0], campus_date(due.groups()).isoformat()))
+            if not row or row["status"] not in {"missing", "graded"} or (
+                    row["points"], row["possible"]) != tuple(map(float, score.groups())):
+                continue
+            gain = max(0, row["possible"] - row["points"])
+            estimates[row["id"]] = {"category": cat["name"], "gain": round(gain * cat["per_point"], 3)}
+    return estimates
+
+
+def detail_points(text, assignment):
+    rows = lines(text)
+    if assignment["title"] not in rows or assignment["course"] not in rows:
+        raise ValueError("Copy the details page for the selected assignment.")
+    ends = [match for row in rows if (match := re.fullmatch(rf"End Date\s*:\s*{DATE}(?:\s.*)?", row))]
+    for i, row in enumerate(rows[:-1]):
+        if row.rstrip(": ").strip() == "End Date":
+            match = re.match(rf"{DATE}\b", rows[i+1])
+            if match:
+                ends.append(match)
+    if ends and not any(campus_date(match.groups()).isoformat() == assignment["due"] for match in ends):
+        raise ValueError("The copied assignment due date does not match the dashboard.")
+    values = [rows[i+1] for i, row in enumerate(rows[:-1]) if row.rstrip(": ").strip() == "Total Points"]
+    if len(values) != 1 or not re.fullmatch(r"\d+(?:\.\d+)?", values[0]) or not 0 < float(values[0]) <= 10000:
+        raise ValueError("Could not find a single Total Points value in the copied assignment details.")
+    return float(values[0])

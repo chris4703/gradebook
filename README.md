@@ -10,6 +10,14 @@ A family dashboard for middle-school work and an after-school plan. It runs as a
 - The goal is A or B in every graded class, using the school’s reported letter grades, including plus and minus variants. Below the goal, the school-day plan is homework with help from 3:45 to 4:45 PM, then screen-free time until dinner. Any D or F gives one hour of PC or iPad after dinner. With a lowest grade of C, it shows three hours. If a letter grade is unavailable and no D or F is reported, the dashboard calls for a parent decision. With all A’s and B’s, screen time is self-managed and the homework check-in is optional.
 - The homework check-in resets at midnight in America/Phoenix. Gradebook displays the plan and records progress. Device limits are handled by the family.
 
+## Points and grade recovery
+
+**All assignments** shows each available point value, including full-credit and unscored work. A percentage-only score stays a percentage. On an unscored assignment, a known total shows as points possible.
+
+**Points to recover** suggests missing work and scored assignments to ask about separately. It calculates the points still available at full credit and can sort by the estimated gain in a class grade. Class-grade estimates use a verified cumulative points total or the category weights and category point totals shown in a matching Campus **Semester To Date** breakdown. Estimates apply to replacement scores and are shown only when the grade calculation reconciles with the school snapshot and the assignment score matches. Late credit, retakes, and corrections depend on the teacher’s policy. A zero-weight category is omitted from these suggestions. Ungraded work is listed in Schoolwork and has no replacement-score estimate.
+
+Use the parent key and **Add Campus points or weights** to paste a class’s expanded grade breakdown from Campus or paste an unscored assignment’s details page showing **Total Points**. Class estimates are cleared on school snapshot refresh so denominators and weights are current. Copy the relevant classes’ breakdowns again after refreshing. Verified assignment totals carry forward for a matching assignment in the same term unless the new snapshot supplies a different total.
+
 ## Run with Docker on the Mac Mini
 
 Copy this directory or clone the repository on the Mac Mini. Run from the checkout:
@@ -67,7 +75,7 @@ Example Math,Unit quiz,2026-11-16,graded,12,20,
 Example Science,"Read chapter 5, part 2",2026-11-21,open,,,
 ```
 
-Use real calendar dates in `YYYY-MM-DD` format and the status values `open`, `missing`, `submitted`, `graded`, or `excused`. Use a consistent source ID when available. Otherwise Gradebook matches progress by class, title, and due date. A snapshot replaces the previous grades and assignments in one transaction. Matching notes and check-ins stay in the database.
+Use real calendar dates in `YYYY-MM-DD` format. For unscored work you can fill in `possible` and leave `points` empty. An optional final `score_percent` column supports a percentage-only score. The status values are `open`, `missing`, `submitted`, `graded`, and `excused`. Use a consistent source ID when available. Otherwise Gradebook matches progress by class, title, and due date. A snapshot replaces the previous grades and assignments in one transaction. Matching notes and check-ins stay in the database.
 
 For an initial setup, you can also stream in a private JSON file with keys `student`, `term`, `asOf`, `grades`, and `assignments`. The last two values are arrays of objects with the CSV fields above.
 
